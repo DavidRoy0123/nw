@@ -1,0 +1,420 @@
+-- বাইবেল ভার্স টেবিল
+CREATE TABLE bible_verses (
+    id SERIAL PRIMARY KEY,
+    bangla_text TEXT NOT NULL,
+    english_text TEXT NOT NULL,
+    book VARCHAR(100) NOT NULL,
+    chapter INTEGER NOT NULL,
+    verse INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- কমেন্ট টেবিল
+CREATE TABLE comments (
+    id SERIAL PRIMARY KEY,
+    verse_id INTEGER REFERENCES bible_verses(id),
+    user_name VARCHAR(100) NOT NULL,
+    comment_text TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- রেটিং টেবিল
+CREATE TABLE ratings (
+    id SERIAL PRIMARY KEY,
+    comment_id INTEGER REFERENCES comments(id),
+    rating_type VARCHAR(20) CHECK (
+        rating_type IN ('very_nice', 'superb', 'amazing', 'life_changing')
+    ),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);# settings.py
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+    'rest_framework',
+    'corsheaders',
+    'bible_app',
+]
+
+MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.security.SecurityMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
+
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:3000',
+    'https://your-domain.com',
+]
+
+# bible_app/models.py
+from django.db import models
+
+class BibleVerse(models.Model):
+    bangla_text = models.TextField()
+    english_text = models.TextField()
+    book = models.CharField(max_length=100)
+    chapter = models.IntegerField()
+    verse = models.IntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.book} {self.chapter}:{self.verse}"
+
+class Comment(models.Model):
+    verse = models.ForeignKey(BibleVerse, on_delete=models.CASCADE)
+    user_name = models.CharField(max_length=100)
+    comment_text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+class Rating(models.Model):
+    comment = models.ForeignKey(Comment, on_delete=models.CASCADE)
+    RATING_CHOICES = [
+        ('very_nice', 'ভালো'),
+        ('superb', 'চমৎকার'),
+        ('amazing', 'অসাধারণ'),
+        ('life_changing', 'জীবনপরিবর্তনকারী')
+    ]
+    rating_type = models.CharField(max_length=20, choices=RATING_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+# bible_app/views.py
+from rest_framework import generics
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from .models import BibleVerse, Comment, Rating
+from .serializers import BibleVerseSerializer, CommentSerializer, RatingSerializer
+
+class BibleVerseSearchView(APIView):
+    def get(self, request):
+        search_terms = request.GET.get('search', '')
+        verses = BibleVerse.objects.filter(
+            bangla_text__icontains=search_terms
+        ).order_by('-created_at')
+        serializer = BibleVerseSerializer(verses, many=True)
+        return Response(serializer.data)
+
+class CommentView(generics.CreateAPIView):
+    serializer_class = CommentSerializer
+
+class RatingView(generics.CreateAPIView):
+    serializer_class = RatingSerializer
+
+# bible_app/serializers.py
+from rest_framework import serializers
+from .models import BibleVerse, Comment, Rating
+
+class BibleVerseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BibleVerse
+        fields = ['id', 'bangla_text', 'english_text', 'book', 'chapter', 'verse']
+
+class CommentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Comment
+        fields = ['id', 'verse', 'user_name', 'comment_text', 'created_at']
+
+class RatingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Rating
+        fields = ['id', 'comment', 'rating_type', 'created_at']// src/App.js
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import SearchPage from './pages/SearchPage';
+import CommentsPage from './pages/CommentsPage';
+import PaymentPage from './pages/PaymentPage';
+import './App.css';
+
+function App() {
+  return (
+    <Router>
+      <div className="app">
+        <header className="app-header">
+          <h1>বাংলা বাইবেল সার্চ</h1>
+          <nav>
+            <ul>
+              <li><a href="/">সার্চ</a></li>
+              <li><a href="/comments">কমেন্ট</a></li>
+              <li><a href="/payment">অনুদান</a></li>
+            </ul>
+          </nav>
+        </header>
+        <Routes>
+          <Route path="/" element={<SearchPage />} />
+          <Route path="/comments" element={<CommentsPage />} />
+          <Route path="/payment" element={<PaymentPage />} />
+        </Routes>
+      </div>
+    </Router>
+  );
+}
+
+export default App;
+
+// src/pages/SearchPage.js
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+
+function SearchPage() {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [verses, setVerses] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchVerses = async () => {
+      if (searchTerm) {
+        setLoading(true);
+        try {
+          const response = await axios.get(
+            `https://your-api-domain/api/verses/?search=${searchTerm}`
+          );
+          setVerses(response.data);
+        } catch (error) {
+          console.error(error);
+        } finally {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchVerses();
+  }, [searchTerm]);
+
+  return (
+    <div className="search-page">
+      <div className="search-box">
+        <input
+          type="text"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="বাইবেল ভার্স খুঁজুন..."
+          className="search-input"
+        />
+      </div>
+      {loading ? (
+        <div className="loading">লোড হচ্ছে...</div>
+      ) : (
+        <div className="verses-list">
+          {verses.map(verse => (
+            <div key={verse.id} className="verse-card">
+              <h3>{verse.book} {verse.chapter}:{verse.verse}</h3>
+              <p className="bangla-text">{verse.bangla_text}</p>
+              <p className="english-text">{verse.english_text}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default SearchPage;
+
+// src/pages/PaymentPage.js
+import React, { useState } from 'react';
+import axios from 'axios';
+
+function PaymentPage() {
+  const [amount, setAmount] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handlePayment = async () => {
+    if (!amount || isNaN(amount)) {
+      alert('দয়া করে একটি বৈধ পরিমাণ লিখুন');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await axios.post('https://your-api-domain/api/payment/', {
+        amount: parseFloat(amount),
+        payment_method: 'bkash',
+        phone: '+8801300325329'
+      });
+
+      window.location.href = response.data.payment_url;
+    } catch (error) {
+      alert('পেমেন্ট প্রক্রিয়ায় সমস্যা হয়েছে');
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="payment-page">
+      <h2>অনুদান দিন</h2>
+      <div className="payment-form">
+        <input
+          type="number"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="পরিমাণ লিখুন"
+          className="amount-input"
+        />
+        <button
+          onClick={handlePayment}
+          disabled={loading}
+          className="payment-button"
+        >
+          {loading ? 'প্রক্রিয়াধীন...' : 'অনুদান দিন'}
+        </button>
+      </div>
+      <p className="note">
+        নোট: শুধুমাত্র অনুদান করুন, ক্যাশ আউট করবেন না।
+      </p>
+    </div>
+  );
+}
+
+export default PaymentPage;
+
+// src/App.css
+.app {
+  font-family: 'SolaimanLipi', Arial, sans-serif;
+  direction: rtl;
+}
+
+.app-header {
+  background-color: #f8f9fa;
+  padding: 1rem;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.app-header h1 {
+  margin: 0;
+  color: #2c3e50;
+}
+
+.app-header nav ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  gap: 1rem;
+}
+
+.app-header nav a {
+  text-decoration: none;
+  color: #2c3e50;
+}
+
+.search-page {
+  max-width: 800px;
+  margin: 2rem auto;
+  padding: 1rem;
+}
+
+.search-box {
+  margin-bottom: 2rem;
+}
+
+.search-input {
+  width: 100%;
+  padding: 0.75rem;
+  font-size: 1.1rem;
+  border: 2px solid #dee2e6;
+  border-radius: 4px;
+  direction: rtl;
+}
+
+.verse-card {
+  background-color: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.bangla-text {
+  font-size: 1.2rem;
+  line-height: 1.6;
+  margin: 1rem 0;
+}
+
+.english-text {
+  font-size: 1rem;
+  color: #666;
+  margin: 1rem 0;
+}
+
+.loading {
+  text-align: center;
+  padding: 2rem;
+  color: #666;
+}
+
+.payment-page {
+  max-width: 600px;
+  margin: 2rem auto;
+  padding: 2rem;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.payment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.amount-input {
+  padding: 0.75rem;
+  font-size: 1.1rem;
+  border: 2px solid #dee2e6;
+  border-radius: 4px;
+  direction: rtl;
+}
+
+.payment-button {
+  padding: 0.75rem;
+  background-color: #28a745;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1.1rem;
+}
+
+.payment-button:disabled {
+  background-color: #6aa146;
+  cursor: not-allowed;
+}
+
+.note {
+  margin-top: 1rem;
+  color: #dc3545;
+  font-size: 0.9rem;
+}# ভার্চুয়াল এনভায়রনমেন্ট তৈরি
+python -m venv venv
+
+# ভার্চুয়াল এনভায়রনমেন্ট অ্যাক্টিভেট
+source venv/bin/activate  # উইন্ডোজে: venv\Scripts\activate
+
+# প্যাকেজ ইনস্টল
+pip install django djangorestframework django-cors-headers
+
+# প্রজেক্ট তৈরি
+django-admin startproject bible_project
+cd bible_project
+
+# অ্যাপ তৈরি
+python manage.py startapp bible_app
+
+# মাইগ্রেশন রান
+python manage.py migrate# নতুন React প্রজেক্ট তৈরি
+npx create-react-app bible-frontend
+cd bible-frontend
+
+# প্রয়োজনীয় প্যাকেজ ইনস্টল
+npm install axios react-router-dom @fontsource/solaiman-lipi
